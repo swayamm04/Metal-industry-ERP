@@ -30,7 +30,11 @@ app.use('/api/adjustment-notes', require('./routes/adjustmentNoteRoutes'));
 
 // Database Connection
 console.log('Attempting to connect to MongoDB...', process.env.MONGO_URI ? 'URI set' : 'URI MISSING');
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(process.env.MONGO_URI, {
+    serverSelectionTimeoutMS: 30000,
+    socketTimeoutMS: 45000,
+    family: 4 // Force IPv4 to resolve Render dynamic DNS resolution bugs
+})
     .then(() => {
         console.log('MongoDB Connected successfully');
     })
