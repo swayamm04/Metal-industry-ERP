@@ -43,6 +43,16 @@ app.get('/', (req, res) => {
     res.send('Metal Industry ERP Backend Running');
 });
 
+// Error Handling Middleware
+app.use((err, req, res, next) => {
+    console.error('Unhandled API Error:', err);
+    const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+    res.status(statusCode).json({
+        message: err.message || 'Internal Server Error',
+        stack: process.env.NODE_ENV === 'production' ? null : err.stack
+    });
+});
+
 // Start Server
 const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on 0.0.0.0:${PORT}`);

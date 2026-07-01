@@ -7,29 +7,33 @@ const generateToken = require('../utils/generateToken');
 // @route   POST /api/users/login
 // @access  Public
 const authUser = async (req, res) => {
-    const { email, password } = req.body;
+    try {
+        const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
+        const user = await User.findOne({ email });
 
-    if (user && (await user.matchPassword(password))) {
-        // Log Activity
-        await logActivity(
-            user._id,
-            'USER_LOGIN',
-            `User logged in: ${user.name}`,
-            req
-        );
+        if (user && (await user.matchPassword(password))) {
+            // Log Activity
+            await logActivity(
+                user._id,
+                'USER_LOGIN',
+                `User logged in: ${user.name}`,
+                req
+            );
 
-        res.json({
-            _id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            token: generateToken(user._id),
-        });
-    } else {
-        res.status(401);
-        throw new Error('Invalid email or password');
+            res.json({
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                token: generateToken(user._id),
+            });
+        } else {
+            return res.status(401).json({ message: 'Invalid email or password' });
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        return res.status(500).json({ message: error.message || 'Server Error' });
     }
 };
 
