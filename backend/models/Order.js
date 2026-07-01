@@ -105,6 +105,10 @@ const orderSchema = mongoose.Schema({
         enum: ['Pending', 'Processing', 'Shipped', 'Completed', 'Cancelled'],
         default: 'Pending'
     },
+    previousStatus: {
+        type: String,
+        enum: ['Pending', 'Processing', 'Shipped', 'Completed']
+    },
     paymentHistory: [
         {
             amount: { type: Number, required: true },
@@ -121,6 +125,10 @@ const orderSchema = mongoose.Schema({
         default: false
     },
     isPastOrder: {
+        type: Boolean,
+        default: false
+    },
+    hasAdjustment: {
         type: Boolean,
         default: false
     }

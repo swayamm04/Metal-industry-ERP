@@ -4,6 +4,7 @@ const RawMaterial = require('../models/RawMaterial');
 const Customer = require('../models/Customer');
 const Supplier = require('../models/Supplier');
 const ActivityLog = require('../models/ActivityLog');
+const AdjustmentNote = require('../models/AdjustmentNote');
 
 // Helper to build date filter
 const buildDateFilter = (req) => {
@@ -27,10 +28,13 @@ const buildDateFilter = (req) => {
 const getSalesSummary = async (req, res) => {
     try {
         const filter = buildDateFilter(req);
-        filter.status = 'Completed';
-        filter.includeGST = { $ne: false };
+        const orderFilter = { ...filter, status: 'Completed', includeGST: { $ne: false } };
+        const noteFilter = { ...filter, includeGST: { $ne: false }, originalOrder: { $exists: true, $ne: null } };
 
-        const orders = await Order.find(filter).sort({ createdAt: 1 });
+        const [orders, notes] = await Promise.all([
+            Order.find(orderFilter).sort({ createdAt: 1 }),
+            AdjustmentNote.find(noteFilter)
+        ]);
 
         // Group by date (simplified for now)
         const summary = orders.reduce((acc, order) => {
@@ -42,6 +46,18 @@ const getSalesSummary = async (req, res) => {
             acc[date].orderCount += 1;
             return acc;
         }, {});
+
+        notes.forEach(note => {
+            const date = new Date(note.createdAt).toISOString().split('T')[0];
+            if (!summary[date]) {
+                summary[date] = { date, totalSales: 0, orderCount: 0 };
+            }
+            if (note.noteType === 'Credit') {
+                summary[date].totalSales -= (note.grandTotal || 0);
+            } else if (note.noteType === 'Debit') {
+                summary[date].totalSales += (note.grandTotal || 0);
+            }
+        });
 
         res.status(200).json(Object.values(summary));
     } catch (error) {
@@ -399,6 +415,19 @@ const getAnalyticsDashboard = async (req, res) => {
             ])
         ]);
 
+        const [currentAdjustmentNotes, prevAdjustmentNotes] = await Promise.all([
+            AdjustmentNote.find({
+                includeGST: { $ne: false },
+                createdAt: { $gte: startDate, $lte: endDate },
+                originalOrder: { $exists: true, $ne: null }
+            }),
+            AdjustmentNote.find({
+                includeGST: { $ne: false },
+                createdAt: { $gte: prevStartDate, $lt: prevEndDate },
+                originalOrder: { $exists: true, $ne: null }
+            })
+        ]);
+
         const customerCount = await Customer.countDocuments({ createdAt: { $gte: startDate } });
         const prevCustomerCount = await Customer.countDocuments({ createdAt: { $gte: prevStartDate, $lt: prevEndDate } });
 
@@ -411,6 +440,30 @@ const getAnalyticsDashboard = async (req, res) => {
 
         const currentKPIs = kpis[0] || { totalRevenue: 0, totalOrders: 0, productsSold: 0 };
         const pastKPIs = prevKpis[0] || { totalRevenue: 0, totalOrders: 0, productsSold: 0 };
+
+        // Adjust Current KPIs
+        const currentAdjRevenue = currentAdjustmentNotes.reduce((acc, note) => {
+            return acc + (note.noteType === 'Debit' ? (note.grandTotal || 0) : -(note.grandTotal || 0));
+        }, 0);
+        const currentAdjQty = currentAdjustmentNotes.reduce((acc, note) => {
+            const qtySum = note.items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+            return acc + (note.noteType === 'Debit' ? qtySum : -qtySum);
+        }, 0);
+
+        currentKPIs.totalRevenue += currentAdjRevenue;
+        currentKPIs.productsSold += currentAdjQty;
+
+        // Adjust Past KPIs
+        const prevAdjRevenue = prevAdjustmentNotes.reduce((acc, note) => {
+            return acc + (note.noteType === 'Debit' ? (note.grandTotal || 0) : -(note.grandTotal || 0));
+        }, 0);
+        const prevAdjQty = prevAdjustmentNotes.reduce((acc, note) => {
+            const qtySum = note.items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+            return acc + (note.noteType === 'Debit' ? qtySum : -qtySum);
+        }, 0);
+
+        pastKPIs.totalRevenue += prevAdjRevenue;
+        pastKPIs.productsSold += prevAdjQty;
 
         // Format Trends
         const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -429,6 +482,23 @@ const getAnalyticsDashboard = async (req, res) => {
                 revenue: item.revenue,
                 orders: item.orders
             };
+        });
+
+        // Apply adjustments to trend
+        currentAdjustmentNotes.forEach(note => {
+            const date = new Date(note.createdAt);
+            let label = "";
+            if (groupFormat.day) {
+                label = `${dayNames[date.getDay()]} ${date.getDate()}`;
+            } else {
+                label = monthNames[date.getMonth()];
+            }
+            
+            const trendEntry = formattedTrend.find(t => t.label === label);
+            if (trendEntry) {
+                const amount = note.noteType === 'Debit' ? (note.grandTotal || 0) : -(note.grandTotal || 0);
+                trendEntry.revenue += amount;
+            }
         });
 
         res.status(200).json({

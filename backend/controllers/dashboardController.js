@@ -2,6 +2,7 @@ const Product = require('../models/Product');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const Customer = require('../models/Customer');
+const AdjustmentNote = require('../models/AdjustmentNote');
 
 // @desc    Get dashboard stats
 // @route   GET /api/dashboard
@@ -13,10 +14,13 @@ const getDashboardStats = async (req, res) => {
             ? { includeGST: false }
             : { includeGST: { $ne: false } };
 
-        const totalOrders = await Order.countDocuments(filter);
+        const totalOrders = await Order.countDocuments({
+            ...filter,
+            status: { $ne: 'Cancelled' }
+        });
         const totalActiveOrders = await Order.countDocuments({
             ...filter,
-            status: { $ne: 'Completed' }
+            status: { $nin: ['Completed', 'Cancelled'] }
         });
 
         // Calculate total revenue (only delivered/completed orders with specific filter)
@@ -24,7 +28,22 @@ const getDashboardStats = async (req, res) => {
             ...filter,
             status: 'Completed'
         });
-        const totalRevenue = orders.reduce((acc, order) => acc + (order.grandTotal || 0), 0);
+        
+        // Find adjustment notes matching the filter and apply to revenue (only order-linked notes)
+        const notes = await AdjustmentNote.find({
+            ...filter,
+            originalOrder: { $exists: true, $ne: null }
+        });
+        const adjustmentTotal = notes.reduce((acc, note) => {
+            if (note.noteType === 'Credit') {
+                return acc - (note.grandTotal || 0);
+            } else if (note.noteType === 'Debit') {
+                return acc + (note.grandTotal || 0);
+            }
+            return acc;
+        }, 0);
+
+        const totalRevenue = orders.reduce((acc, order) => acc + (order.grandTotal || 0), 0) + adjustmentTotal;
 
         // Products and Customers remain global for now, but we could filter if needed
         const totalProducts = await Product.countDocuments();

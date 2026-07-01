@@ -78,6 +78,7 @@ const menuItems: MenuItem[] = [
       { icon: ShoppingCart, label: "Orders", path: "/orders" },
       { icon: ClipboardList, label: "Pending Orders", path: "/pending-orders" },
       { icon: Receipt, label: "Purchase Orders", path: "/purchase-orders" },
+      { icon: FileText, label: "Credit/Debit Notes", path: "/adjustment-notes" },
     ],
   },
   {

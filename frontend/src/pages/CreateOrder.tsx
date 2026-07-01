@@ -56,9 +56,14 @@ const CreateOrder = () => {
     const [stateCode, setStateCode] = useState("");
     const [email, setEmail] = useState("");
 
+    const getLocalDateString = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
     // Delivery Credentials state
     const [invoiceNo, setInvoiceNo] = useState("");
-    const [invoiceDate, setInvoiceDate] = useState("");
+    const [invoiceDate, setInvoiceDate] = useState(getLocalDateString());
     const [deliveryNote, setDeliveryNote] = useState("");
     const [modeOfPayment, setModeOfPayment] = useState("");
     const [referenceNo, setReferenceNo] = useState("");
@@ -112,10 +117,12 @@ const CreateOrder = () => {
     useEffect(() => {
         const fetchNextInvoice = async () => {
             try {
-                const today = new Date().toISOString().split('T')[0];
+                const today = getLocalDateString();
                 const { data } = await api.get(`/api/orders/next-invoice-number?date=${today}`);
                 setInvoiceNo(data.nextInvoiceNo);
-                setInvoiceDate(today);
+                if (!invoiceDate) {
+                    setInvoiceDate(today);
+                }
             } catch (error) {
                 console.error("Error fetching next invoice number:", error);
             }
@@ -310,6 +317,7 @@ const CreateOrder = () => {
                 includeGST,
                 invoiceNo,
                 invoiceDate,
+                createdAt: invoiceDate ? new Date(invoiceDate).toISOString() : undefined,
                 deliveryNote,
                 modeOfPayment,
                 referenceNo,
@@ -362,6 +370,7 @@ const CreateOrder = () => {
             setBillOfLading("");
             setMotorVehicleNo("");
             setTermsOfDelivery("");
+            setInvoiceDate(getLocalDateString());
 
         } catch (error) {
             console.error("Error creating order:", error);
@@ -384,6 +393,16 @@ const CreateOrder = () => {
                     <div className="flex flex-col space-y-4">
                         <div className="flex items-center justify-between">
                             <Label className="font-semibold text-lg">Customer Type</Label>
+                            <div className="flex items-center gap-2">
+                                <Label htmlFor="invoiceDate" className="text-sm font-semibold whitespace-nowrap text-muted-foreground">Order Date:</Label>
+                                <Input
+                                    id="invoiceDate"
+                                    type="date"
+                                    value={invoiceDate}
+                                    onChange={(e) => setInvoiceDate(e.target.value)}
+                                    className="w-40 h-9 text-sm"
+                                />
+                            </div>
                         </div>
                         <RadioGroup
                             defaultValue="Individual"

@@ -3,6 +3,7 @@ const Customer = require('../models/Customer');
 const Product = require('../models/Product');
 const logActivity = require('../utils/activityLogger');
 const Counter = require('../models/Counter');
+const AdjustmentNote = require('../models/AdjustmentNote');
 
 // Helper to update product stock
 const updateProductStock = async (items, type = 'deduct') => {
@@ -45,6 +46,14 @@ const getOrders = async (req, res) => {
 
         const orders = await Order.find(filter).sort({ createdAt: -1 });
 
+        // Dynamically fetch all adjustment notes to cover old notes before schema update
+        const notes = await AdjustmentNote.find({ originalOrder: { $exists: true, $ne: null } });
+        const adjustedOrderIds = new Set(
+            notes
+                .map(n => n.originalOrder ? n.originalOrder.toString() : null)
+                .filter(Boolean)
+        );
+
         const formattedOrders = orders.map(order => ({
             id: order._id,
             customer: order.customerName,
@@ -57,6 +66,7 @@ const getOrders = async (req, res) => {
             })),
             amount: order.grandTotal || 0,
             status: order.status,
+            previousStatus: order.previousStatus,
             paymentMethod: order.paymentMethod,
             customerType: order.customerType,
             balanceDue: order.balanceDue || 0,
@@ -65,7 +75,8 @@ const getOrders = async (req, res) => {
             invoiceNo: order.invoiceNo,
             includeGST: order.includeGST,
             isDummy: order.isDummy || false,
-            isPastOrder: order.isPastOrder || false
+            isPastOrder: order.isPastOrder || false,
+            hasAdjustment: order.hasAdjustment || adjustedOrderIds.has(order._id.toString())
         }));
 
         res.status(200).json(formattedOrders);
@@ -274,7 +285,17 @@ const updateOrderStatus = async (req, res) => {
 
         if (order) {
             const oldStatus = order.status;
-            order.status = status;
+            let targetStatus = status;
+
+            if (status === 'Cancelled' && oldStatus !== 'Cancelled') {
+                order.previousStatus = oldStatus;
+            } else if (oldStatus === 'Cancelled' && status !== 'Cancelled') {
+                if (order.previousStatus) {
+                    targetStatus = order.previousStatus;
+                }
+            }
+
+            order.status = targetStatus;
             const updatedOrder = await order.save();
 
             // Log Activity
@@ -298,6 +319,24 @@ const updateOrderStatus = async (req, res) => {
                 console.error('Stock update failed during status change:', stockError);
             }
 
+            // Update Customer spent aggregates
+            try {
+                const customer = await Customer.findOne({ contact: order.contact });
+                if (customer) {
+                    if (status === 'Cancelled' && oldStatus !== 'Cancelled') {
+                        customer.totalSpent = Math.max(0, customer.totalSpent - (order.grandTotal || 0));
+                        customer.totalOrders = Math.max(0, customer.totalOrders - 1);
+                        await customer.save();
+                    } else if (oldStatus === 'Cancelled' && status !== 'Cancelled') {
+                        customer.totalSpent += (order.grandTotal || 0);
+                        customer.totalOrders += 1;
+                        await customer.save();
+                    }
+                }
+            } catch (custError) {
+                console.error('Customer stats update failed during status change:', custError);
+            }
+
             res.status(200).json(updatedOrder);
         } else {
             res.status(404).json({ message: 'Order not found' });
@@ -316,7 +355,10 @@ const getOrderById = async (req, res) => {
         const order = await Order.findById(req.params.id);
 
         if (order) {
-            res.status(200).json(order);
+            const hasNote = await AdjustmentNote.exists({ originalOrder: order._id });
+            const orderObj = order.toObject();
+            orderObj.hasAdjustment = order.hasAdjustment || !!hasNote;
+            res.status(200).json(orderObj);
         } else {
             res.status(404).json({ message: 'Order not found' });
         }

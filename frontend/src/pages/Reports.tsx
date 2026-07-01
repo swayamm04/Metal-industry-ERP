@@ -148,6 +148,7 @@ const Reports = () => {
   const [searchTerm, setSearchTerm] = React.useState("");
   const [salesSearchTerm, setSalesSearchTerm] = React.useState("");
   const [typeFilter, setTypeFilter] = React.useState("all");
+  const [sourceFilter, setSourceFilter] = React.useState<"all" | "pending" | "completed">("all");
   const [loading, setLoading] = React.useState(false);
   const [generatingReport, setGeneratingReport] = React.useState<string | null>(null);
   const [dateRange, setDateRange] = React.useState({ start: "", end: "" });
@@ -162,6 +163,7 @@ const Reports = () => {
   const [isPaymentModalOpen, setIsPaymentModalOpen] = React.useState(false);
   const [downloadingReceiptIndex, setDownloadingReceiptIndex] = React.useState<number | null>(null);
   const [isDownloadingStatement, setIsDownloadingStatement] = React.useState(false);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = React.useState<string | null>(null);
 
   /* Data Fetching */
   const fetchOrders = async () => {
@@ -191,18 +193,25 @@ const Reports = () => {
       const sanitizedSearch = searchTerm.replace(/^#/, "").toLowerCase().trim();
       const orderId = (order.orderId || order.id || "").toLowerCase();
       const customer = (order.customerName || order.customer || "").toLowerCase();
+      const invoiceNo = (order.invoiceNo || "").toLowerCase();
 
       const matchesSearch =
         customer.includes(sanitizedSearch) ||
-        orderId.includes(sanitizedSearch);
+        orderId.includes(sanitizedSearch) ||
+        invoiceNo.includes(sanitizedSearch);
 
       const matchesType =
         typeFilter === "all" ||
         (order.customerType || "").toLowerCase() === typeFilter.toLowerCase();
 
-      return matchesSearch && matchesType;
+      const matchesSource =
+        sourceFilter === "all" ||
+        (sourceFilter === "completed" && (order.previousStatus === "Completed" || (!order.previousStatus && (order.balanceDue === 0 || !order.balanceDue)))) ||
+        (sourceFilter === "pending" && (order.previousStatus !== "Completed" && (order.previousStatus || (order.balanceDue > 0))));
+
+      return matchesSearch && matchesType && matchesSource;
     });
-  }, [orders, searchTerm, typeFilter]);
+  }, [orders, searchTerm, typeFilter, sourceFilter]);
 
   /* Filtering Logic for Sales Report */
   const filteredSalesOrders = useMemo(() => {
@@ -213,6 +222,7 @@ const Reports = () => {
         (item.name || "").toLowerCase().includes(sanitizedSearch)
       );
       const matchesOrderId = (order.orderId || order.id || "").toLowerCase().includes(sanitizedSearch);
+      const matchesInvoiceNo = (order.invoiceNo || "").toLowerCase().includes(sanitizedSearch);
 
       let matchesDate = true;
       if (salesDateRange.start || salesDateRange.end) {
@@ -229,15 +239,17 @@ const Reports = () => {
         }
       }
 
-      return (matchesCustomer || matchesPlant || matchesOrderId) && matchesDate;
+      return (matchesCustomer || matchesPlant || matchesOrderId || matchesInvoiceNo) && matchesDate;
     });
   }, [salesOrders, salesSearchTerm, salesDateRange]);
 
   /* Order Actions */
   const handleRestoreOrder = async (orderId: string) => {
     try {
-      await api.patch(`/api/orders/${orderId}/status`, { status: "Pending" });
-      toast.success("Order restored to pending successfully");
+      const order = orders.find((o: any) => o.id === orderId);
+      const prevStatus = order?.previousStatus || "Pending";
+      await api.patch(`/api/orders/${orderId}/status`, { status: prevStatus });
+      toast.success(`Order restored to ${prevStatus.toLowerCase()} successfully`);
       fetchOrders();
     } catch (error) {
       console.error("Failed to restore order:", error);
@@ -256,11 +268,30 @@ const Reports = () => {
       const companyDetails = settingsRes.data;
       await generateInvoice({ ...fullOrder, orderId: fullOrder._id, companyDetails });
       toast.success("Invoice downloaded");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error generating invoice:", error);
-      toast.error("Failed to generate invoice");
+      toast.error(`Failed to generate invoice: ${error.message || error}`);
     } finally {
       setDownloadingReceiptIndex(null);
+    }
+  };
+
+  const handleDownloadInvoiceFromList = async (order: any) => {
+    setDownloadingInvoiceId(order.id);
+    try {
+      const [orderRes, settingsRes] = await Promise.all([
+        api.get(`/api/orders/${order.id}`),
+        api.get("/api/company-settings")
+      ]);
+      const fullOrder = orderRes.data;
+      const companyDetails = settingsRes.data;
+      await generateInvoice({ ...fullOrder, orderId: fullOrder._id, companyDetails });
+      toast.success("Invoice downloaded");
+    } catch (error: any) {
+      console.error("Error generating invoice:", error);
+      toast.error(`Failed to generate invoice: ${error.message || error}`);
+    } finally {
+      setDownloadingInvoiceId(null);
     }
   };
 
@@ -684,7 +715,7 @@ const Reports = () => {
       {view === "cancelled" && (
         <Card>
           <CardHeader>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="relative flex-1 max-w-sm w-full">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -694,18 +725,35 @@ const Reports = () => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-md border">
-                {["all", "individual", "business"].map((f) => (
-                  <Button
-                    key={f}
-                    variant={typeFilter === f ? "secondary" : "ghost"}
-                    size="sm"
-                    className="h-7 text-xs capitalize"
-                    onClick={() => setTypeFilter(f)}
-                  >
-                    {f}
-                  </Button>
-                ))}
+              <div className="flex flex-wrap items-center gap-4">
+                {/* Source Filter */}
+                <div className="flex items-center gap-1.5 bg-muted/50 p-1 rounded-md border text-sm">
+                  {["all", "pending", "completed"].map((f) => (
+                    <Button
+                      key={f}
+                      variant={sourceFilter === f ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-7 text-xs capitalize px-3"
+                      onClick={() => setSourceFilter(f as any)}
+                    >
+                      {f === "all" ? "All Sources" : f === "pending" ? "Pending Orders" : "Completed Orders"}
+                    </Button>
+                  ))}
+                </div>
+                {/* Customer Type Filter */}
+                <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md border">
+                  {["all", "individual", "business"].map((f) => (
+                    <Button
+                      key={f}
+                      variant={typeFilter === f ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-7 text-xs capitalize px-3"
+                      onClick={() => setTypeFilter(f)}
+                    >
+                      {f}
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -745,13 +793,25 @@ const Reports = () => {
                                 <History className="mr-2 h-4 w-4" /> Payment History
                               </DropdownMenuItem>
                               <DropdownMenuItem
+                                className="cursor-pointer text-blue-600 focus:text-blue-600 focus:bg-blue-50"
+                                onClick={() => handleDownloadInvoiceFromList(order)}
+                                disabled={downloadingInvoiceId === order.id}
+                              >
+                                {downloadingInvoiceId === order.id ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Download className="mr-2 h-4 w-4" />
+                                )}
+                                <span>Download Invoice</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
                                 className="cursor-pointer text-green-600 focus:text-green-600 focus:bg-green-50"
                                 onClick={() => {
                                   setOrderToRestore(order.id);
                                   setIsRestoreDialogOpen(true);
                                 }}
                               >
-                                <RefreshCcw className="mr-2 h-4 w-4" /> Restore to Pending
+                                <RefreshCcw className="mr-2 h-4 w-4" /> Restore to {order.previousStatus || 'Pending'}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -848,9 +908,11 @@ const Reports = () => {
       <AlertDialog open={isRestoreDialogOpen} onOpenChange={setIsRestoreDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Restore Order to Pending?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Restore Order to {orders.find((o: any) => o.id === orderToRestore)?.previousStatus || "Pending"}?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will move the order back to the pending list and re-deduct the items from stock.
+              This will move the order back to the {(orders.find((o: any) => o.id === orderToRestore)?.previousStatus || "Pending").toLowerCase()} list and re-deduct the items from stock.
               Are you sure you want to proceed?
             </AlertDialogDescription>
           </AlertDialogHeader>

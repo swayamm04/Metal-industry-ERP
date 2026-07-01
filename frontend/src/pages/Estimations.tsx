@@ -52,6 +52,12 @@ interface OrderItem {
 }
 
 const Estimations = ({ isSecret = false }: { isSecret?: boolean }) => {
+    const getLocalDateString = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const [createdAt, setCreatedAt] = useState(getLocalDateString());
     const [customerType, setCustomerType] = useState<"Individual" | "Business">("Individual");
     const [customerName, setCustomerName] = useState("");
     const [contact, setContact] = useState("");
@@ -261,7 +267,9 @@ const Estimations = ({ isSecret = false }: { isSecret?: boolean }) => {
                 stateCode,
                 email,
                 includeGST,
-                estimationNo: `EST-${Date.now().toString().slice(-6)}`
+                estimationNo: `EST-${Date.now().toString().slice(-6)}`,
+                date: createdAt ? new Date(createdAt).toISOString() : undefined,
+                createdAt: createdAt ? new Date(createdAt).toISOString() : undefined
             };
 
             const response = await api.post("/api/estimations", estimationData);
@@ -282,6 +290,7 @@ const Estimations = ({ isSecret = false }: { isSecret?: boolean }) => {
             setStateName("");
             setStateCode("");
             setEmail("");
+            setCreatedAt(getLocalDateString());
 
             // Refresh history
             fetchData();
@@ -316,7 +325,16 @@ const Estimations = ({ isSecret = false }: { isSecret?: boolean }) => {
                         <div className="flex flex-col space-y-4">
                             <div className="flex items-center justify-between">
                                 <Label className="font-semibold text-lg">Customer Type</Label>
-                                
+                                <div className="flex items-center gap-2">
+                                    <Label htmlFor="createdAt" className="text-sm font-semibold whitespace-nowrap text-muted-foreground">Order Date:</Label>
+                                    <Input
+                                        id="createdAt"
+                                        type="date"
+                                        value={createdAt}
+                                        onChange={(e) => setCreatedAt(e.target.value)}
+                                        className="w-40 h-9 text-sm"
+                                    />
+                                </div>
                             </div>
                             <RadioGroup
                                 defaultValue="Individual"

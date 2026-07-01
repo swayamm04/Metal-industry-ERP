@@ -89,6 +89,7 @@ export interface InvoiceData {
     cgst?: number;
     sgst?: number;
     pageSize?: 'a4' | 'a5';
+    status?: string;
 }
 
 export interface PaymentReceiptData {
@@ -115,6 +116,35 @@ export interface StatementData {
         date: string | Date;
         method: string;
     }[];
+    companyDetails?: InvoiceData['companyDetails'];
+}
+
+export interface AdjustmentNoteData {
+    _id?: string;
+    noteNo: string;
+    noteType: 'Credit' | 'Debit';
+    originalOrder?: string;
+    invoiceNo: string;
+    invoiceDate: string | Date;
+    customerName: string;
+    contact: string;
+    address: string;
+    companyName?: string;
+    gstin?: string;
+    stateName?: string;
+    stateCode?: string;
+    email?: string;
+    items: any[];
+    subtotal: number;
+    loadingCharge: number;
+    cgst: number;
+    sgst: number;
+    grandTotal: number;
+    roundOff: number;
+    reason: string;
+    includeGST: boolean;
+    isDummy: boolean;
+    createdAt?: string | Date;
     companyDetails?: InvoiceData['companyDetails'];
 }
 
@@ -157,7 +187,8 @@ export const generateInvoice = async (data: InvoiceData) => {
         cgst: passedCgst,
         sgst: passedSgst,
         includeGST = true,
-        pageSize = 'a4'
+        pageSize = 'a4',
+        status
     } = data;
 
     const orientation = pageSize === 'a5' ? 'l' : 'p'; // A5 landscape often used for bills, but let's stick to Portrait for A5 unless requested
@@ -615,6 +646,36 @@ export const generateInvoice = async (data: InvoiceData) => {
     doc.setFontSize(7);
     doc.text("Authorised Signatory", pageWidth - 10, boxStartY + 45, { align: "right" });
 
+    if (status === "Cancelled") {
+        const pageCount = doc.getNumberOfPages();
+        const text = "CANCELLED";
+        const fontSize = pageSize === 'a5' ? 75 : 100;
+        
+        doc.setFontSize(fontSize);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 210, 210); // Soft light red/pink
+        
+        // Calculate text width in mm using scaleFactor
+        const textWidth = (doc.getStringUnitWidth(text) * fontSize) / doc.internal.scaleFactor;
+        
+        const cx = pageWidth / 2;
+        const cy = pageHeight / 2;
+        
+        // Compute the rotated start coordinates (bottom-left) so the text centers at (cx, cy)
+        // With angle 45 (CCW rotation), the text direction is up-right:
+        // dx = (textWidth / 2) * cos(45)
+        // dy = -(textWidth / 2) * sin(45) (Y increases downwards, so going up is negative Y)
+        const x = cx - (textWidth / 2) * 0.70711;
+        const y = cy + (textWidth / 2) * 0.70711;
+        
+        for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.text(text, x, y, {
+                angle: 45
+            });
+        }
+    }
+
     doc.save(`${data.isEstimation ? 'Estimation' : 'Invoice'}_${customerName.replace(/\s+/g, '_')}_${orderId || Date.now()}.pdf`);
 };
 
@@ -857,6 +918,381 @@ export const generatePaymentStatement = async (data: StatementData) => {
     doc.text("End of Statement", pageWidth / 2, pageHeight - 10, { align: "center" });
 
     doc.save(`Statement_${customerName.replace(/\s+/g, '_')}_${orderId.slice(-6)}.pdf`);
+};
+
+export const generateAdjustmentNote = async (data: AdjustmentNoteData) => {
+    const {
+        noteNo,
+        noteType,
+        invoiceNo,
+        invoiceDate,
+        customerName,
+        contact,
+        address,
+        companyName: businessCompanyName,
+        gstin,
+        stateName: buyerStateName,
+        stateCode: buyerStateCode,
+        items,
+        subtotal,
+        loadingCharge = 0,
+        cgst = 0,
+        sgst = 0,
+        grandTotal,
+        roundOff = 0,
+        reason,
+        includeGST = true,
+        isDummy,
+        createdAt,
+        companyDetails
+    } = data;
+
+    const doc = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4'
+    });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    // Helper to format date
+    const formatDate = (dateInput?: any) => {
+        if (!dateInput) return "";
+        const d = new Date(dateInput);
+        if (isNaN(d.getTime())) return dateInput.toString();
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
+    };
+
+    const drawnWatermarkPages = new Set<number>();
+    const drawPageDecoration = (tableData?: any) => {
+        const currentPage = tableData ? tableData.pageNumber : 1;
+
+        if (!drawnWatermarkPages.has(currentPage)) {
+            drawnWatermarkPages.add(currentPage);
+            // Draw Watermark first
+            const watermarkText = `${noteType.toUpperCase()} NOTE`;
+            doc.setFontSize(60);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(245, 245, 245); // extremely light gray (almost invisible behind text)
+            const textWidth = (doc.getStringUnitWidth(watermarkText) * 60) / doc.internal.scaleFactor;
+            const x = (pageWidth / 2) - (textWidth / 2) * 0.70711;
+            const y = (pageHeight / 2) + (textWidth / 2) * 0.70711;
+            doc.text(watermarkText, x, y, { angle: 45 });
+
+            // Reset text color and drawing style
+            doc.setTextColor(0);
+            doc.setFont("helvetica", "normal");
+        }
+
+        doc.setDrawColor(0);
+        doc.setLineWidth(0.1);
+        doc.rect(5, 5, pageWidth - 10, pageHeight - 10);
+
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "italic");
+        doc.text(`This is a Computer Generated ${noteType} Note`, pageWidth / 2, pageHeight - 8, { align: "center" });
+
+        if (tableData && tableData.pageNumber > 1) {
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "normal");
+            doc.text(`Page ${tableData.pageNumber}`, pageWidth - 15, pageHeight - 8);
+        }
+    };
+
+    // Load Logo
+    try {
+        const logoBase64 = await loadImage("/logo.png");
+        if (logoBase64) {
+            doc.addImage(logoBase64, 'PNG', 6, 6, 25, 8);
+        }
+    } catch (error) {
+        console.error("Error loading logo for adjustment note:", error);
+    }
+
+    // Title Header
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    if (noteType === 'Credit') {
+        doc.setTextColor(180, 0, 0); // Burgundy/Red for credit
+    } else {
+        doc.setTextColor(0, 100, 0); // Dark green for debit
+    }
+    doc.text(`${noteType.toUpperCase()} NOTE`, pageWidth / 2, 12, { align: "center" });
+    doc.setTextColor(0, 0, 0); // Reset to black
+    doc.line(5, 15, pageWidth - 5, 15);
+
+    // Company Block
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.text(companyDetails?.companyName || "VASANTHA METAL INDUSTRY", 8, 20);
+    doc.setFont("helvetica", "normal");
+    const addressLines = doc.splitTextToSize(companyDetails?.address || "Bangalore", 80);
+    doc.text(addressLines, 8, 25);
+
+    let headerY = 25 + (addressLines.length * 4);
+    const displayGstin = companyDetails?.gstin || (companyDetails as any)?.gstNumber || "";
+    const displayStateName = companyDetails?.state || (companyDetails as any)?.stateName || "";
+    const displayStateCode = companyDetails?.gstCode || (companyDetails as any)?.stateCode || "";
+
+    doc.text(`GSTIN/UIN: ${displayGstin}`, 8, headerY);
+    doc.text(`State Name: ${displayStateName}, Code: ${displayStateCode}`, 8, headerY + 5);
+
+    // Right Column Metadata grid
+    const rightColOffset = pageWidth / 2;
+    let currentRightY = 15;
+
+    const renderHeaderRow = (leftPair?: { label: string, value: string }, rightPair?: { label: string, value: string }) => {
+        doc.setFontSize(8);
+        const rowStartY = currentRightY;
+        let rowHeight = 10;
+        
+        let leftHeight = 0;
+        let rightHeight = 0;
+        const rightColInternalSplit = 35;
+
+        if (leftPair) {
+            doc.setFont("helvetica", "normal");
+            doc.text(leftPair.label, rightColOffset + 2, rowStartY + 4);
+            doc.setFont("helvetica", "bold");
+            const wrapped = doc.splitTextToSize(leftPair.value || "", rightColInternalSplit - 4);
+            doc.text(wrapped, rightColOffset + 2, rowStartY + 8);
+            leftHeight = 8 + (wrapped.length * 3.5);
+        }
+
+        if (rightPair) {
+            doc.setFont("helvetica", "normal");
+            doc.text(rightPair.label, rightColOffset + rightColInternalSplit + 2, rowStartY + 4);
+            doc.setFont("helvetica", "bold");
+            const wrapped = doc.splitTextToSize(rightPair.value || "", (pageWidth - 5 - (rightColOffset + rightColInternalSplit)) - 4);
+            doc.text(wrapped, rightColOffset + rightColInternalSplit + 2, rowStartY + 8);
+            rightHeight = 8 + (wrapped.length * 3.5);
+        }
+        
+        rowHeight = Math.max(rowHeight, leftHeight, rightHeight);
+
+        doc.setDrawColor(0);
+        doc.setLineWidth(0.1);
+        doc.line(rightColOffset, rowStartY + rowHeight, pageWidth - 5, rowStartY + rowHeight);
+        doc.line(rightColOffset + rightColInternalSplit, rowStartY, rightColOffset + rightColInternalSplit, rowStartY + rowHeight);
+
+        currentRightY += rowHeight;
+    };
+
+    renderHeaderRow(
+        { label: `${noteType} Note No.`, value: noteNo },
+        { label: "Dated", value: formatDate(createdAt || new Date()) }
+    );
+    renderHeaderRow(
+        { label: "Original Invoice No.", value: invoiceNo },
+        { label: "Original Invoice Date", value: formatDate(invoiceDate) }
+    );
+    
+    // Add Reason row (spanning full width of right col)
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text("Reason for Adjustment", rightColOffset + 2, currentRightY + 4);
+    doc.setFont("helvetica", "bold");
+    const wrappedReason = doc.splitTextToSize(reason || "Sales Return", (pageWidth - 5 - rightColOffset) - 4);
+    doc.text(wrappedReason, rightColOffset + 2, currentRightY + 8);
+    const reasonRowHeight = Math.max(10, 8 + (wrappedReason.length * 3.5));
+    doc.line(rightColOffset, currentRightY + reasonRowHeight, pageWidth - 5, currentRightY + reasonRowHeight);
+    currentRightY += reasonRowHeight;
+
+    const finalHeaderBottom = Math.max(85, currentRightY, headerY + 15);
+
+    // Buyer details
+    doc.setFont("helvetica", "bold");
+    doc.text("Bill To / Issued To", 8, headerY + 15);
+
+    let buyerY = headerY + 20;
+    if (businessCompanyName) {
+        doc.text(businessCompanyName, 8, buyerY);
+        buyerY += 4;
+    } else {
+        doc.text(customerName, 8, buyerY);
+        buyerY += 4;
+    }
+
+    doc.setFont("helvetica", "normal");
+    const buyerAddr = doc.splitTextToSize(address, 80);
+    doc.text(buyerAddr, 8, buyerY);
+    buyerY += (buyerAddr.length * 4);
+
+    if (gstin) {
+        doc.text(`GSTIN/UIN: ${gstin}`, 8, buyerY);
+        buyerY += 4;
+    }
+    if (buyerStateName) {
+        doc.text(`State Name: ${buyerStateName}${buyerStateCode ? `, Code: ${buyerStateCode}` : ""}`, 8, buyerY);
+        buyerY += 4;
+    }
+    doc.text(`Contact: ${contact}`, 8, buyerY);
+
+    const finalSectionDividerY = Math.max(finalHeaderBottom, buyerY + 5);
+    doc.line(pageWidth / 2, 15, pageWidth / 2, finalSectionDividerY);
+    doc.line(5, finalSectionDividerY, pageWidth - 5, finalSectionDividerY);
+
+    // Table
+    const tableBody = items.map((item, index) => {
+        const displayUnit = (item.calculationField?.unit || item.unit || 'pcs').toUpperCase();
+        const multiplier = getCalculationMultiplier(item.calculationField?.value, item.calculationField?.unit);
+        const resultantQty = item.quantity * multiplier;
+        const calcStr = (item.calculationField && item.calculationField.value && item.calculationField.value.toString() !== "1")
+            ? ` (${item.calculationField.label}: ${item.calculationField.value} ${item.calculationField.unit || ""})`
+            : "";
+
+        return [
+            index + 1,
+            `${item.productName || "Product"}${calcStr}`,
+            item.hsnCode || item.category || "N/A",
+            `${resultantQty.toFixed(2)} ${displayUnit}`,
+            item.price.toFixed(2),
+            displayUnit,
+            (item.price * resultantQty).toFixed(2)
+        ];
+    });
+
+    const tableHead = [['SI No', 'Description of Goods', 'HSN/SAC', 'Quantity', 'Rate', 'per', 'Amount']];
+
+    autoTable(doc, {
+        startY: finalSectionDividerY,
+        head: tableHead,
+        body: tableBody,
+        theme: 'plain',
+        styles: { fontSize: 7, cellPadding: 2, font: "helvetica", lineWidth: 0.1, lineColor: [0, 0, 0] },
+        headStyles: { fillColor: [245, 245, 245], textColor: [0, 0, 0], fontStyle: 'bold' },
+        columnStyles: {
+            0: { cellWidth: 10 },
+            1: { cellWidth: 'auto' },
+            2: { cellWidth: 25 },
+            3: { cellWidth: 20, halign: 'center' },
+            4: { cellWidth: 25, halign: 'right' },
+            5: { cellWidth: 15 },
+            6: { cellWidth: 25, halign: 'right' }
+        },
+        margin: { left: 5, right: 5, bottom: 15 },
+        willDrawPage: drawPageDecoration
+    });
+
+    // Summary
+    let lastY = (doc as any).lastAutoTable.finalY + 5;
+    const summaryHeight = 35;
+    if (lastY + summaryHeight > pageHeight - 15) {
+        doc.addPage();
+        drawPageDecoration();
+        lastY = 20;
+    }
+
+    const summaryX = pageWidth - 80;
+    const rightEdge = pageWidth - 10;
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+
+    doc.text("Subtotal:", summaryX, lastY);
+    doc.text(`Rs. ${subtotal.toFixed(2)}`, rightEdge, lastY, { align: 'right' });
+
+    if (loadingCharge > 0) {
+        doc.text("Loading Charges:", summaryX, lastY + 5);
+        doc.text(`Rs. ${loadingCharge.toFixed(2)}`, rightEdge, lastY + 5, { align: 'right' });
+        lastY += 5;
+    }
+
+    const taxableValue = subtotal + loadingCharge;
+    doc.setFont("helvetica", "bold");
+    doc.text("Total Taxable Value:", summaryX, lastY + 6);
+    doc.text(`Rs. ${taxableValue.toFixed(2)}`, rightEdge, lastY + 6, { align: 'right' });
+    lastY += 6;
+    doc.setFont("helvetica", "normal");
+
+    if (includeGST) {
+        doc.text("CGST (9%):", summaryX, lastY + 5);
+        doc.text(`Rs. ${cgst.toFixed(2)}`, rightEdge, lastY + 5, { align: 'right' });
+
+        doc.text("SGST (9%):", summaryX, lastY + 10);
+        doc.text(`Rs. ${sgst.toFixed(2)}`, rightEdge, lastY + 10, { align: 'right' });
+        lastY += 10;
+    }
+
+    if (roundOff > 0) {
+        doc.text("Round Off:", summaryX, lastY + 5);
+        doc.text(`Rs. ${roundOff.toFixed(2)}`, rightEdge, lastY + 5, { align: 'right' });
+        lastY += 5;
+    }
+
+    doc.line(summaryX - 2, lastY + 3, pageWidth - 5, lastY + 3);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("Grand Total Adjusted:", summaryX, lastY + 9);
+    doc.text(`Rs. ${grandTotal.toFixed(2)}`, rightEdge, lastY + 9, { align: 'right' });
+
+    // Footer box and signatures
+    let footerY = lastY + 18;
+    if (footerY + 55 > pageHeight - 10) {
+        doc.addPage();
+        drawPageDecoration();
+        footerY = 20;
+    }
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    const amountInWords = `Amount in words : INR ${toWords(grandTotal).trim()} Only`;
+    const wordsLines = doc.splitTextToSize(amountInWords, pageWidth - 15);
+    doc.text(wordsLines, 7, footerY);
+    footerY += (wordsLines.length * 4);
+
+    const boxStartY = footerY + 2;
+    const boxWidth = pageWidth - 10;
+    const boxHeight = 50;
+    const splitX = 5 + (boxWidth * 0.45);
+
+    doc.rect(5, boxStartY, boxWidth, boxHeight);
+    doc.line(splitX, boxStartY, splitX, boxStartY + boxHeight);
+
+    // Left side info
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.text("Declaration", 6, boxStartY + 4);
+    doc.line(6, boxStartY + 4.5, 18, boxStartY + 4.5);
+    doc.setFont("helvetica", "normal");
+    const declText = `We declare that this ${noteType} Note shows the actual adjustment of the goods described and that all details are true and correct.`;
+    const declLines = doc.splitTextToSize(declText, splitX - 10);
+    doc.text(declLines, 6, boxStartY + 8);
+
+    // Bank Details (Right Side - Top part)
+    const rightX = splitX + 2;
+    doc.setFont("helvetica", "bold");
+    doc.text("Company's Bank Details", rightX, boxStartY + 4);
+
+    doc.setFontSize(7);
+    const bankDetails = companyDetails?.bankDetails;
+    const bankData = [
+        { label: "A/c Holder's Name", value: bankDetails?.accountHolderName || companyDetails?.companyName || "" },
+        { label: "Bank Name", value: bankDetails?.bankName || "" },
+        { label: "A/c No.", value: bankDetails?.accountNumber || "" },
+        { label: "Branch & IFS Code", value: `${bankDetails?.branch || ""} & ${bankDetails?.ifscCode || ""}` },
+        { label: "SWIFT Code", value: bankDetails?.swiftCode || "" }
+    ];
+
+    bankData.forEach((row, i) => {
+        doc.setFont("helvetica", "normal");
+        doc.text(row.label, rightX, boxStartY + 8 + (i * 3.5));
+        doc.text(":", rightX + 24, boxStartY + 8 + (i * 3.5));
+        doc.setFont("helvetica", "bold");
+        doc.text(row.value.toString(), rightX + 26, boxStartY + 8 + (i * 3.5));
+    });
+
+    // Horizontal separator within right box (pushed down)
+    doc.line(splitX, boxStartY + 28, pageWidth - 5, boxStartY + 28);
+
+    // Signature Area (Bottom Right)
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.text(`for ${companyDetails?.companyName || "VASANTHA METAL INDUSTRY"}`, pageWidth - 7, boxStartY + 33, { align: "right" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.text("Authorised Signatory", pageWidth - 10, boxStartY + 45, { align: "right" });
+
+    doc.save(`${noteType}Note_${customerName.replace(/\s+/g, '_')}_${noteNo.replace(/\//g, '_')}.pdf`);
 };
 
 const toWords = (num: number) => {

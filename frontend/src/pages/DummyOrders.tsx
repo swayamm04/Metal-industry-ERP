@@ -46,7 +46,12 @@ interface OrderItem {
 }
 
 const DummyOrders = () => {
-    const [createdAt, setCreatedAt] = useState("");
+    const getLocalDateString = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const [createdAt, setCreatedAt] = useState(getLocalDateString());
     const [customerType, setCustomerType] = useState<"Individual" | "Business">("Individual");
     const [customerName, setCustomerName] = useState("");
     const [contact, setContact] = useState("");
@@ -487,7 +492,7 @@ const DummyOrders = () => {
             setBillOfLading("");
             setMotorVehicleNo("");
             setTermsOfDelivery("");
-            setCreatedAt("");
+            setCreatedAt(getLocalDateString());
 
         } catch (error) {
             console.error("Error creating order:", error);
@@ -510,6 +515,17 @@ const DummyOrders = () => {
                     <div className="flex flex-col space-y-4">
                         <div className="flex items-center justify-between">
                             <Label className="font-semibold text-lg">Customer Type</Label>
+                            <div className="flex items-center gap-2">
+                                <Label htmlFor="createdAt" className="text-sm font-semibold whitespace-nowrap text-muted-foreground">Order Date:</Label>
+                                <Input
+                                    id="createdAt"
+                                    type="date"
+                                    value={createdAt}
+                                    onChange={(e) => setCreatedAt(e.target.value)}
+                                    max={getLocalDateString()}
+                                    className="w-40 h-9 text-sm"
+                                />
+                            </div>
                         </div>
                         <RadioGroup
                             defaultValue="Individual"
@@ -528,20 +544,8 @@ const DummyOrders = () => {
                         </RadioGroup>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t">
-                        <div className="flex flex-col space-y-4">
-                            <Label htmlFor="createdAt" className="font-semibold text-lg">Order Date <span className="text-destructive">*</span></Label>
-                            <Input
-                                id="createdAt"
-                                type="date"
-                                value={createdAt}
-                                onChange={(e) => setCreatedAt(e.target.value)}
-                                max={new Date().toISOString().split('T')[0]}
-                                className="w-full"
-                            />
-                            <p className="text-xs text-muted-foreground">Select the original date this order was placed.</p>
-                        </div>
-                        <div className="flex flex-col space-y-4">
+                    <div className="pt-4 border-t">
+                        <div className="flex flex-col space-y-4 max-w-md">
                             <Label htmlFor="invoiceNo" className="font-semibold text-lg">Invoice No. <span className="text-destructive">*</span></Label>
                             <div className="relative flex items-center group">
                                 <span className="absolute left-3 flex items-center h-full text-muted-foreground font-bold pointer-events-none select-none border-r pr-2 py-2 group-focus-within:text-foreground transition-colors">
