@@ -457,7 +457,7 @@ export const generateInvoice = async (data: InvoiceData) => {
         const calcStr = item.allCalcInfo.length > 0 ? ` (${item.allCalcInfo.join(", ")})` : "";
 
         const description = specsStr
-            ? { content: `${item.productName || "Product"}${calcStr}\n${specsStr}`, styles: { fontSize: 6, cellPadding: 1 } }
+            ? { content: `${item.productName || "Product"}${calcStr}\n${specsStr}`, styles: { fontSize: 8, cellPadding: 2 } }
             : `${item.productName || "Product"}${calcStr}`;
 
         // Determine the unit to display: calculation unit takes priority if it exists
@@ -481,7 +481,7 @@ export const generateInvoice = async (data: InvoiceData) => {
         head: tableHead,
         body: tableBody,
         theme: 'plain',
-        styles: { fontSize: 7, cellPadding: 2, font: "helvetica", lineWidth: 0.1, lineColor: [0, 0, 0] },
+        styles: { fontSize: 9, cellPadding: 3, font: "helvetica", lineWidth: 0.1, lineColor: [0, 0, 0] },
         headStyles: { fillColor: [245, 245, 245], textColor: [0, 0, 0], fontStyle: 'bold' },
         columnStyles: {
             0: { cellWidth: 10 },
