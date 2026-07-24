@@ -457,7 +457,7 @@ export const generateInvoice = async (data: InvoiceData) => {
         const calcStr = item.allCalcInfo.length > 0 ? ` (${item.allCalcInfo.join(", ")})` : "";
 
         const description = specsStr
-            ? { content: `${item.productName || "Product"}${calcStr}\n${specsStr}`, styles: { fontSize: 8, cellPadding: 2 } }
+            ? { content: `${item.productName || "Product"}${calcStr}\n${specsStr}`, styles: { fontSize: 7, cellPadding: 1 } }
             : `${item.productName || "Product"}${calcStr}`;
 
         // Determine the unit to display: calculation unit takes priority if it exists
@@ -470,7 +470,7 @@ export const generateInvoice = async (data: InvoiceData) => {
             `${item.resultantQuantity.toFixed(2)} ${displayUnit}`,
             item.price.toFixed(2),
             displayUnit,
-            (item.price * item.resultantQuantity).toFixed(2)
+            { content: (item.price * item.resultantQuantity).toFixed(2), styles: { fontSize: 10, fontStyle: 'bold' } }
         ];
     });
 
@@ -481,7 +481,7 @@ export const generateInvoice = async (data: InvoiceData) => {
         head: tableHead,
         body: tableBody,
         theme: 'plain',
-        styles: { fontSize: 9, cellPadding: 3, font: "helvetica", lineWidth: 0.1, lineColor: [0, 0, 0] },
+        styles: { fontSize: 7, cellPadding: 2, font: "helvetica", lineWidth: 0.1, lineColor: [0, 0, 0] },
         headStyles: { fillColor: [245, 245, 245], textColor: [0, 0, 0], fontStyle: 'bold' },
         columnStyles: {
             0: { cellWidth: 10 },
@@ -509,7 +509,7 @@ export const generateInvoice = async (data: InvoiceData) => {
 
     const summaryX = pageSize === 'a5' ? pageWidth - 100 : pageWidth - 80;
     const rightEdge = pageWidth - 10;
-    doc.setFontSize(8);
+    doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
 
     const subtotalValue = items.reduce((sum, item) => sum + (item.price * item.quantity * getCalculationMultiplier(item.calculationField?.value, item.calculationField?.unit)), 0);
@@ -553,13 +553,13 @@ export const generateInvoice = async (data: InvoiceData) => {
     }
 
     doc.line(summaryX - 2, lastY + 3, pageWidth - 5, lastY + 3);
-    doc.setFontSize(10);
+    doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
     doc.text("Grand Total:", summaryX, lastY + 9);
     doc.text(`Rs. ${grandTotal.toFixed(2)}`, rightEdge, lastY + 9, { align: 'right' });
 
     // Payment Summary Section
-    doc.setFontSize(9);
+    doc.setFontSize(10);
     if (balanceDue !== undefined && balanceDue > 0) {
         doc.text("Paid Amount:", summaryX, lastY + 16);
         doc.text(`Rs. ${paidAmount?.toFixed(2) || "0.00"}`, rightEdge, lastY + 16, { align: 'right' });
@@ -582,7 +582,7 @@ export const generateInvoice = async (data: InvoiceData) => {
     }
 
     // Amount in words (Spans across)
-    doc.setFontSize(8);
+    doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     const amountInWords = `Amount in words : INR ${toWords(grandTotal).trim()} Only`;
     const wordsLines = doc.splitTextToSize(amountInWords, pageWidth - 15);
@@ -650,24 +650,24 @@ export const generateInvoice = async (data: InvoiceData) => {
         const pageCount = doc.getNumberOfPages();
         const text = "CANCELLED";
         const fontSize = pageSize === 'a5' ? 75 : 100;
-        
+
         doc.setFontSize(fontSize);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 210, 210); // Soft light red/pink
-        
+
         // Calculate text width in mm using scaleFactor
         const textWidth = (doc.getStringUnitWidth(text) * fontSize) / doc.internal.scaleFactor;
-        
+
         const cx = pageWidth / 2;
         const cy = pageHeight / 2;
-        
+
         // Compute the rotated start coordinates (bottom-left) so the text centers at (cx, cy)
         // With angle 45 (CCW rotation), the text direction is up-right:
         // dx = (textWidth / 2) * cos(45)
         // dy = -(textWidth / 2) * sin(45) (Y increases downwards, so going up is negative Y)
         const x = cx - (textWidth / 2) * 0.70711;
         const y = cy + (textWidth / 2) * 0.70711;
-        
+
         for (let i = 1; i <= pageCount; i++) {
             doc.setPage(i);
             doc.text(text, x, y, {
@@ -1045,7 +1045,7 @@ export const generateAdjustmentNote = async (data: AdjustmentNoteData) => {
         doc.setFontSize(8);
         const rowStartY = currentRightY;
         let rowHeight = 10;
-        
+
         let leftHeight = 0;
         let rightHeight = 0;
         const rightColInternalSplit = 35;
@@ -1067,7 +1067,7 @@ export const generateAdjustmentNote = async (data: AdjustmentNoteData) => {
             doc.text(wrapped, rightColOffset + rightColInternalSplit + 2, rowStartY + 8);
             rightHeight = 8 + (wrapped.length * 3.5);
         }
-        
+
         rowHeight = Math.max(rowHeight, leftHeight, rightHeight);
 
         doc.setDrawColor(0);
@@ -1086,7 +1086,7 @@ export const generateAdjustmentNote = async (data: AdjustmentNoteData) => {
         { label: "Original Invoice No.", value: invoiceNo },
         { label: "Original Invoice Date", value: formatDate(invoiceDate) }
     );
-    
+
     // Add Reason row (spanning full width of right col)
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
@@ -1148,7 +1148,7 @@ export const generateAdjustmentNote = async (data: AdjustmentNoteData) => {
             `${resultantQty.toFixed(2)} ${displayUnit}`,
             item.price.toFixed(2),
             displayUnit,
-            (item.price * resultantQty).toFixed(2)
+            { content: (item.price * resultantQty).toFixed(2), styles: { fontSize: 10, fontStyle: 'bold' } }
         ];
     });
 
@@ -1185,7 +1185,7 @@ export const generateAdjustmentNote = async (data: AdjustmentNoteData) => {
 
     const summaryX = pageWidth - 80;
     const rightEdge = pageWidth - 10;
-    doc.setFontSize(8);
+    doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
 
     doc.text("Subtotal:", summaryX, lastY);
@@ -1220,7 +1220,7 @@ export const generateAdjustmentNote = async (data: AdjustmentNoteData) => {
     }
 
     doc.line(summaryX - 2, lastY + 3, pageWidth - 5, lastY + 3);
-    doc.setFontSize(10);
+    doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
     doc.text("Grand Total Adjusted:", summaryX, lastY + 9);
     doc.text(`Rs. ${grandTotal.toFixed(2)}`, rightEdge, lastY + 9, { align: 'right' });
@@ -1233,7 +1233,7 @@ export const generateAdjustmentNote = async (data: AdjustmentNoteData) => {
         footerY = 20;
     }
 
-    doc.setFontSize(8);
+    doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     const amountInWords = `Amount in words : INR ${toWords(grandTotal).trim()} Only`;
     const wordsLines = doc.splitTextToSize(amountInWords, pageWidth - 15);
